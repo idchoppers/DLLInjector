@@ -1,8 +1,8 @@
 # DLLInjector
 A DLL Injector for Windows.
 
-Usage:
-'''.\DLLInjector.exe Process.exe'''
+Usage in Command Prompt:
+```.\DLLInjector.exe Process.exe```
 
 The program then displays a Select file Dialogue for you to select the DLL to inject to the specified process.
 
