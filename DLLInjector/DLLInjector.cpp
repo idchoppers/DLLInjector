@@ -1,7 +1,7 @@
 /*
 	Name	    : DLLInjector.cpp
 	Author	    : idchoppers
-	Date	    : 1/27/2024
+	Date	    : 1/28/2024
 	Description : Injects a DLL into a running process.
 */
 
@@ -19,10 +19,10 @@ constexpr auto BUFFSIZE = 32767;
 
 // Gets the ID of the target process
 DWORD 
-GetProcId (const wchar_t* procName);
+GetProcID (const wchar_t* procName);
 
 // Gets the DLL to inject
-LPWSTR
+const char*
 GetDLLFilePath ();
 
 /* Main ************************************************************************************/
@@ -40,18 +40,23 @@ main (int argc, const char* argv[])
 	wchar_t procName[MAX_PATH];
 	mbstowcs_s (&imageLength, procName, argv[1], imageLength);
 
-	LPWSTR DLLPath = GetDLLFilePath ();
-	int pathLength = WideCharToMultiByte(CP_ACP, 0, DLLPath, -1, 0, 0, NULL, NULL);
-	char* pathName = new char[pathLength];
-	WideCharToMultiByte(CP_ACP, 0, DLLPath, -1, pathName, pathLength, NULL, NULL);
-
+	const char* pathName = GetDLLFilePath ();
+	if (pathName == NULL)
+	{
+		std::cout << "[ERROR] DLL File not found!" << std::endl;
+		delete[] pathName;
+		pathName = nullptr;
+		return EXIT_FAILURE;
+	}
 	std::cout << "[STATUS] Found DLL at " << pathName << std::endl;
 
-	while (!procID)
+	procID = GetProcID (procName);
+	if (procID == 0)
 	{
-		std::cout << "[STATUS] Trying to find process ID for " << argv[1] << std::endl;
-		procID = GetProcId (procName);
-		Sleep (30);
+		std::cout << "[ERROR] Process not found! Make sure name of process is correct and that it is running!" << std::endl;
+		delete[] pathName;
+		pathName = nullptr;
+		return EXIT_FAILURE;
 	}
 	std::wcout << "[STATUS] Found ID " << procID << " for process " << procName << std::endl;
 	
@@ -61,9 +66,12 @@ main (int argc, const char* argv[])
 	{
 		LPVOID procLocation = VirtualAllocEx (procHandle, 0, BUFFSIZE, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 
-		if (procLocation != 0 && WriteProcessMemory (procHandle, procLocation, pathName, strlen (pathName) + 1, 0) != TRUE)
+		if (procLocation != 0 && pathName != 0
+			&& WriteProcessMemory (procHandle, procLocation, pathName, strlen (pathName) + 1, 0) != TRUE)
 		{
 			std::cout << "[ERROR] Failed to write DLL to process memory! Error( " << GetLastError () << " )" << std::endl;
+			delete[] pathName;
+			pathName = nullptr;
 			return EXIT_FAILURE;
 		}
 		std::cout << "[STATUS] Wrote DLL to process memory at " << std::hex << procLocation << std::endl;
@@ -78,7 +86,8 @@ main (int argc, const char* argv[])
 	}
 
 	delete[] pathName;
-	
+	pathName = nullptr;
+
 	if (procHandle)
 	{
 		CloseHandle (procHandle);
@@ -98,7 +107,7 @@ main (int argc, const char* argv[])
 	Returns the running process ID
 */
 DWORD
-GetProcId (const wchar_t* procName)
+GetProcID (const wchar_t* procName)
 {
 	DWORD procId = {};
 	HANDLE snapshotHandle = CreateToolhelp32Snapshot (TH32CS_SNAPPROCESS, 0);
@@ -130,32 +139,38 @@ GetProcId (const wchar_t* procName)
 	Output:
 	File Handle
 */
-LPWSTR
+const char*
 GetDLLFilePath ()
 {
 	OPENFILENAME open;
-	wchar_t* pathSize;
 	LPWSTR filePath = {};
+	char* pathName = {};
+	int pathLength = {};
 
-	pathSize = (wchar_t*)malloc(BUFFSIZE);
+	wchar_t* pathSize = new wchar_t[BUFFSIZE]();
 
 	ZeroMemory (&open, sizeof (open));
 	open.lStructSize = sizeof (OPENFILENAME);
 	open.lpstrFile = pathSize;
 	open.lpstrFile[0] = '\0';
-	open.nMaxFile = sizeof (pathSize);
+	open.nMaxFile = BUFFSIZE;
 	open.lpstrFilter = L"DLL Files\0*.DLL\0\0";
 	open.nFileOffset = 1;
 	open.lpstrFileTitle = NULL;
 	open.lpstrInitialDir = NULL;
 	open.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
-	
-	free(pathSize);
-	
-	if (GetOpenFileName(&open))
+
+	if (GetOpenFileName (&open))
 	{
 		filePath = open.lpstrFile;
+
+		pathLength = WideCharToMultiByte (CP_ACP, 0, filePath, -1, 0, 0, NULL, NULL);
+		pathName = new char[pathLength];
+		WideCharToMultiByte (CP_ACP, 0, filePath, -1, pathName, pathLength, NULL, NULL);
 	}
 
-	return filePath;
+	delete[] pathSize;
+	pathSize = nullptr;
+
+	return pathName;
 }
